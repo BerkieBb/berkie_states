@@ -15,7 +15,7 @@ server_scripts {
 
 dependencies {
     '/onesync',
-    '/server:5848'
+    '/server:6129'
 }
 
 lua54 'yes'

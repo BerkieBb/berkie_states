@@ -7,4 +7,4 @@ This resource allows you to manage things like hunger, thirst etc. without a fra
 ## Requirements
 
 * OneSync
-* [FXServer](https://runtime.fivem.net/artifacts/fivem/) 5848 or higher
+* [FXServer](https://runtime.fivem.net/artifacts/fivem/) 6129 or higher
