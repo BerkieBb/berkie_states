@@ -1,5 +1,4 @@
-local playerStates = {}
-local stateBags = {}
+local stateHolders = {}
 
 --#region Functions
 
@@ -10,59 +9,82 @@ local function getPlayerIdentifier(source)
     local identifiers = GetPlayerIdentifiers(source)
     for i = 1, #identifiers do
         local identifier = identifiers[i]
-        if identifier:find('license') then
+        if identifier:find('license2') or identifier:find('license') then
             return identifier
         end
     end
 end
 
+---Add the contents of the second array to the first
+---@param array1 any[]
+---@param array2 any[]
+---@return any[]
+local function addToArray(array1, array2)
+    local amount = #array1 + 1
+    local iterator = 1
+    for i = amount, amount + #array2 do
+        array1[i] = array2[iterator]
+        iterator += 1
+    end
+
+    return array1
+end
+
 ---Initialize the resource
 ---@param source? number | string
 local function init(source)
-    if not source then
-        -- Initialize state bag handlers for all states
-        for state in pairs(States) do
-            ---@diagnostic disable-next-line: param-type-mismatch
-            stateBags[state] = AddStateBagChangeHandler(state, nil, function(bagName, _, value)
-                local player = GetPlayerFromStateBagName(bagName)
-                if player == 0 then return end
-
-                if not playerStates[player] or not playerStates[player].states then return end
-
-                playerStates[player].states[state] = value
-            end)
-        end
-    end
-
     local players = source and {source} or GetPlayers()
     for i = 1, #players do
         local src = tonumber(players[i]) --[[@as number]]
         local identifier = getPlayerIdentifier(src)
         if not identifier then return end
         local kvp = GetResourceKvpString(identifier)
-        playerStates[src] = {
-            source = src,
-            identifier = identifier,
-            states = kvp and json.decode(kvp) or {}
-        }
-
-        local isEmpty = table.type(playerStates[src].states) == 'empty'
+        local states = kvp and json.decode(kvp) or {}
         local stateBag = Player(src).state
         for state, data in pairs(States) do
-            local newData = data
-            newData.value = not isEmpty and stateBag[state].value or data.startingValue
-            stateBag:set(state, newData, true)
+            if data.stateType == 'player' then
+                local newData = table.clone(data)
+                newData.value = stateBag[state] and stateBag[state].value or states[state] and states[state].value or data.startingValue
+                stateBag:set(state, newData, true)
+            end
+        end
+        stateHolders[#stateHolders + 1] = {
+            type = 'player',
+            identifier = identifier,
+            source = src
+        }
+    end
+
+    if source then return end
+
+    local entities = addToArray(addToArray(GetGamePool('CPed'), GetGamePool('CVehicle')), GetGamePool('CObject'))
+    for i = 1, #entities do
+        local entity = entities[i]
+        local stateBag = Entity(entity).state
+        for state, data in pairs(States) do
+            if data.stateType == 'entity' then
+                local newData = table.clone(data)
+                newData.value = stateBag[state] and stateBag[state].value or data.startingValue
+                stateBag:set(state, newData, true)
+            end
+        end
+        stateHolders[#stateHolders + 1] = {
+            type = 'entity',
+            identifier = NetworkGetNetworkIdFromEntity(entity),
+            handle = entity
+        }
+    end
+
+    local kvp = GetResourceKvpString('global')
+    local states = kvp and json.decode(kvp) or {}
+    for state, data in pairs(States) do
+        if data.stateType == 'global' then
+            local newData = table.clone(data)
+            newData.value = GlobalState[state] and GlobalState[state].value or states[state] and states[state].value or data.startingValue
+            GlobalState:set(state, newData, true)
         end
     end
 end
-
----Get a certain state from a player
----@param source number
----@param state string
----@return table | nil
-exports('getStateFromPlayer', function(source, state)
-    return playerStates[source] and playerStates[source].states[state] or nil
-end)
 
 ---Add a new state to the config (only for the runtime of the script)
 ---@param state string
@@ -70,80 +92,61 @@ end)
 exports('addState', function(state, data)
     if States[state] then return end
 
+    data.stateType = data.stateType and string.lower(data.stateType) or nil
+    data.stateType = (not data.stateType or data.stateType ~= 'global' or data.stateType ~= 'entity' or data.stateType ~= 'player' or data.stateType ~= 'all') and 'player' or data.stateType
     States[state] = data
 
-    ---@diagnostic disable-next-line: param-type-mismatch
-    stateBags[state] = AddStateBagChangeHandler(state, nil, function(bagName, _, value)
-        local player = GetPlayerFromStateBagName(bagName)
-        if player == 0 then return end
-
-        if not playerStates[player] or not playerStates[player].states then return end
-
-        playerStates[player].states[state] = value
-    end)
-
-    local stateToAdd = data
+    local stateToAdd = table.clone(data)
     stateToAdd.value = data.startingValue
-    for source in pairs(playerStates[source]) do
-        Player(source).state:set(state, stateToAdd, true)
+
+    for i = 1, #stateHolders do
+        local holder = stateHolders[i]
+        if holder.type == 'player' and (data.stateType == 'player' or data.stateType == 'all') then
+            Player(holder.source).state:set(state, stateToAdd, true)
+        elseif holder.type == 'entity' and (data.stateType == 'entity' or data.stateType == 'all') then
+            local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
+            if DoesEntityExist(entity) then
+                Entity(entity).state:set(state, stateToAdd, true)
+            else
+                table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+            end
+        end
+    end
+
+    if data.stateType == 'global' or data.stateType == 'all' then
+        GlobalState:set(state, stateToAdd, true)
     end
 end)
 
 ---Remove a state from the config (only for the runtime of the script)
 ---@param state string
-exports('removeState', function(state)
+---@param removeFromStateBags boolean If set to true, this will remove the state from all active state bags as well
+exports('removeState', function(state, removeFromStateBags)
     if not States[state] then return end
 
     States[state] = nil
-    RemoveStateBagChangeHandler(stateBags[state])
-    stateBags[state] = nil
+
+    if not removeFromStateBags then return end
+
+    for i = 1, #stateHolders do
+        local holder = stateHolders[i]
+        if holder.type == 'player' then
+            Player(holder.source).state:set(state, nil, true)
+        elseif holder.type == 'entity' then
+            local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
+            if DoesEntityExist(entity) then
+                Entity(entity).state:set(state, nil, true)
+            else
+                table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+            end
+        end
+    end
+
+    GlobalState:set(state, nil, true)
 end)
 
----Add a number to a state
----@param source number
----@param state string
----@param amount number
-local function addToState(source, state, amount)
-    if not source or not state or not amount or type(state) ~= 'string' or type(amount) ~= 'number' or not States[state] or not playerStates[source] or not playerStates[source].states[state] or type(playerStates[source].states[state]?.value) ~= 'number' then return end
-
-    local stateBag = Player(source)
-    local curState = stateBag.state[state]
-    if curState.max and curState.value + amount > curState.max then return end
-
-    curState.value += amount
-    stateBag.state:set(state, curState, true)
-end
-
-exports('addToState', addToState)
-
----Subtract a number to a state
----@param source number
----@param state string
----@param amount number
-exports('subtractFromState', function(source, state, amount)
-    if not source or not state or not amount or type(state) ~= 'string' or type(amount) ~= 'number' or not States[state] or not playerStates[source] or not playerStates[source].states[state] or type(playerStates[source].states[state]?.value) ~= 'number' then return end
-
-    local stateBag = Player(source)
-    local curState = stateBag.state[state]
-    if curState.min and curState.value - 1 < curState.min then return end
-
-    curState.value -= amount
-    stateBag.state:set(state, curState, true)
-end)
-
----Set a state's value
----@param source number
----@param state string
----@param value any
-exports('setState', function(source, state, value)
-    if not source or not state or type(state) ~= 'string' or not playerStates[source] or not playerStates[source].states[state] then return end
-
-    local stateBag = Player(source)
-    local curState = stateBag.state[state]
-    if type(curState.value) == 'number' and ((curState.min and curState.value - 1 < curState.min) or curState.max and curState.value + 1 > curState.max) then return end
-
-    curState.value = value
-    stateBag.state:set(state, curState, true)
+exports('getStates', function()
+    return States
 end)
 
 --#endregion Functions
@@ -155,11 +158,26 @@ AddEventHandler('playerJoining', function()
 end)
 
 AddEventHandler('playerDropped', function()
-    local data = playerStates[source]
-    if not data then return end
+    local holder, index
+    for i = 1, #stateHolders do
+        if stateHolders[i].source == source then
+            holder, index = stateHolders[i], i
+        end
+    end
 
-    SetResourceKvp(data.identifier, json.encode(data.states))
-    playerStates[source] = nil
+    if not holder then return end
+
+    local stateBag = Player(holder.source).state
+    local states = {}
+    for state, data in pairs(States) do
+        if data.stateType == 'player' or data.stateType == 'all' then
+            states[data] = stateBag[state]
+        end
+    end
+
+    SetResourceKvp(holder.identifier, json.encode(states))
+
+    table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
 end)
 
 AddEventHandler('onResourceStart', function(resource)
@@ -171,9 +189,29 @@ end)
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
 
-    for _, data in pairs(playerStates) do
-        SetResourceKvp(data.identifier, json.encode(data.states))
+    for i = 1, #stateHolders do
+        local holder = stateHolders[i]
+        if holder.type == 'player' then
+            local stateBag = Player(holder.source).state
+            local states = {}
+            for state, data in pairs(States) do
+                if data.stateType == 'player' or data.stateType == 'all' then
+                    states[data] = stateBag[state]
+                end
+            end
+
+            SetResourceKvp(holder.identifier, json.encode(states))
+        end
     end
+
+    local states = {}
+    for state, data in pairs(States) do
+        if data.stateType == 'global' or data.stateType == 'all' then
+            states[state] = GlobalState[state]
+        end
+    end
+
+    SetResourceKvp('global', json.encode(states))
 end)
 
 --#endregion Events
@@ -181,16 +219,70 @@ end)
 --#region Threads
 
 CreateThread(function()
+    -- stateType fallback
+    for _, data in pairs(States) do
+        data.stateType = data.stateType and string.lower(data.stateType) or nil
+        data.stateType = (not data.stateType or data.stateType ~= 'global' or data.stateType ~= 'entity' or data.stateType ~= 'player' or data.stateType ~= 'all') and 'player' or data.stateType
+    end
+
     local intervalTime = IntervalTime * 60000
     while true do
         Wait(intervalTime)
-        for source, data in pairs(playerStates) do
-            for state, stateData in pairs(data.states) do
-                if stateData.interval and type(stateData.interval) == 'number' then
-                    addToState(source, state, stateData.interval)
+        for i = 1, #stateHolders do
+            local holder = stateHolders[i]
+            if holder.type == 'player' then
+                local stateBag = Player(holder.source).state
+                for state, data in pairs(States) do
+                    if data.stateType == 'player' or data.stateType == 'all' then
+                        local bag = stateBag[state]
+                        if bag and type(bag.value) == 'number' then
+                            local newData = table.clone(bag)
+                            newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.min) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
+                            if type(data.interval) == 'number' then
+                                newData.value += data.interval
+                            end
+
+                            stateBag:set(state, newData, true)
+                        end
+                    end
+                end
+            elseif holder.type == 'entity' then
+                local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
+                if DoesEntityExist(entity) then
+                    local stateBag = Entity(entity).state
+                    for state, data in pairs(States) do
+                        if data.stateType == 'entity' or data.stateType == 'all' then
+                            local bag = stateBag[state]
+                            if bag and type(bag.value) == 'number' then
+                                local newData = table.clone(bag)
+                                newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.min) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
+                                if type(data.interval) == 'number' then
+                                    newData.value += data.interval
+                                end
+
+                                stateBag:set(state, newData, true)
+                            end
+                        end
+                    end
+                else
+                    table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
                 end
             end
-            SetResourceKvp(data.identifier, json.encode(data.states))
+        end
+
+        for state, data in pairs(States) do
+            if data.stateType == 'global' or data.stateType == 'all' then
+                local bag = GlobalState[state]
+                if bag and type(bag.value) == 'number' then
+                    local newData = table.clone(bag)
+                    newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.min) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
+                    if type(data.interval) == 'number' then
+                        newData.value += data.interval
+                    end
+
+                    stateBag:set(state, newData, true)
+                end
+            end
         end
     end
 end)
@@ -199,9 +291,34 @@ CreateThread(function()
     local saveTime = SaveTime * 60000
     while true do
         Wait(saveTime)
-        for _, data in pairs(playerStates) do
-            SetResourceKvp(data.identifier, json.encode(data.states))
+        for i = 1, #stateHolders do
+            local holder = stateHolders[i]
+            if holder.type == 'player' then
+                local stateBag = Player(holder.source).state
+                local states = {}
+                for state, data in pairs(States) do
+                    if data.stateType == 'player' or data.stateType == 'all' then
+                        states[data] = stateBag[state]
+                    end
+                end
+
+                SetResourceKvp(holder.identifier, json.encode(states))
+            elseif holder.type == 'entity' then
+                local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
+                if not DoesEntityExist(entity) then
+                    table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+                end
+            end
         end
+
+        local states = {}
+        for state, data in pairs(States) do
+            if data.stateType == 'global' or data.stateType == 'all' then
+                states[state] = GlobalState[state]
+            end
+        end
+
+        SetResourceKvp('global', json.encode(states))
     end
 end)
 

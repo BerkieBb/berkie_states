@@ -4,7 +4,7 @@ game 'gta5'
 name 'berkie_states'
 author 'BerkieB'
 description 'Server-side state manager for FiveM'
-version '1.0.0'
+version '1.1.0'
 repository 'https://github.com/BerkieBb/berkie_states'
 license 'GPL v3'
 
