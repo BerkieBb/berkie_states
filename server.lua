@@ -57,7 +57,8 @@ local function init(source)
 
     if source then return end
 
-    local entities = addToArray(addToArray(GetGamePool('CPed'), GetGamePool('CVehicle')), GetGamePool('CObject'))
+    ---@diagnostic disable-next-line: param-type-mismatch
+    local entities = addToArray(addToArray(GetAllPeds(), GetAllVehicles()), GetAllObjects()) --[[ @as number[] ]]
     for i = 1, #entities do
         local entity = entities[i]
         local stateBag = Entity(entity).state
