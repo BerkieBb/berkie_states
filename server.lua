@@ -102,14 +102,16 @@ exports('addState', function(state, data)
 
     for i = 1, #stateHolders do
         local holder = stateHolders[i]
-        if holder.type == 'player' and (data.stateType == 'player' or data.stateType == 'all') then
-            Player(holder.source).state:set(state, stateToAdd, true)
-        elseif holder.type == 'entity' and (data.stateType == 'entity' or data.stateType == 'all') then
-            local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
-            if DoesEntityExist(entity) then
-                Entity(entity).state:set(state, stateToAdd, true)
-            else
-                table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+        if holder then
+            if holder.type == 'player' and (data.stateType == 'player' or data.stateType == 'all') then
+                Player(holder.source).state:set(state, stateToAdd, true)
+            elseif holder.type == 'entity' and (data.stateType == 'entity' or data.stateType == 'all') then
+                local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
+                if DoesEntityExist(entity) then
+                    Entity(entity).state:set(state, stateToAdd, true)
+                else
+                    table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+                end
             end
         end
     end
@@ -131,14 +133,16 @@ exports('removeState', function(state, removeFromStateBags)
 
     for i = 1, #stateHolders do
         local holder = stateHolders[i]
-        if holder.type == 'player' then
-            Player(holder.source).state:set(state, nil, true)
-        elseif holder.type == 'entity' then
-            local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
-            if DoesEntityExist(entity) then
-                Entity(entity).state:set(state, nil, true)
-            else
-                table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+        if holder then
+            if holder.type == 'player' then
+                Player(holder.source).state:set(state, nil, true)
+            elseif holder.type == 'entity' then
+                local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
+                if DoesEntityExist(entity) then
+                    Entity(entity).state:set(state, nil, true)
+                else
+                    table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+                end
             end
         end
     end
@@ -161,7 +165,8 @@ end)
 AddEventHandler('playerDropped', function()
     local holder, index
     for i = 1, #stateHolders do
-        if stateHolders[i].source == source then
+        local stateHolder = stateHolders[i]
+        if stateHolder and stateHolder.source == source then
             holder, index = stateHolders[i], i
         end
     end
@@ -173,11 +178,6 @@ AddEventHandler('playerDropped', function()
     for state, data in pairs(States) do
         if data.stateType == 'player' or data.stateType == 'all' then
             states[state] = stateBag[state]
-            for key, value in pairs(states[state]) do
-                if type(value) == 'table' then
-                    states[state][key] = json.encode(value)
-                end
-            end
         end
     end
 
@@ -197,21 +197,18 @@ AddEventHandler('onResourceStop', function(resource)
 
     for i = 1, #stateHolders do
         local holder = stateHolders[i]
-        if holder.type == 'player' then
-            local stateBag = Player(holder.source).state
-            local states = {}
-            for state, data in pairs(States) do
-                if data.stateType == 'player' or data.stateType == 'all' then
-                    states[state] = stateBag[state]
-                    for key, value in pairs(states[state]) do
-                        if type(value) == 'table' then
-                            states[state][key] = json.encode(value)
-                        end
+        if holder then
+            if holder.type == 'player' then
+                local stateBag = Player(holder.source).state
+                local states = {}
+                for state, data in pairs(States) do
+                    if data.stateType == 'player' or data.stateType == 'all' then
+                        states[state] = stateBag[state]
                     end
                 end
-            end
 
-            SetResourceKvp(holder.identifier, json.encode(states))
+                SetResourceKvp(holder.identifier, json.encode(states))
+            end
         end
     end
 
@@ -219,11 +216,6 @@ AddEventHandler('onResourceStop', function(resource)
     for state, data in pairs(States) do
         if data.stateType == 'global' or data.stateType == 'all' then
             states[state] = GlobalState[state]
-            for key, value in pairs(states[state]) do
-                if type(value) == 'table' then
-                    states[state][key] = json.encode(value)
-                end
-            end
         end
     end
 
@@ -246,28 +238,11 @@ CreateThread(function()
         Wait(intervalTime)
         for i = 1, #stateHolders do
             local holder = stateHolders[i]
-            if holder.type == 'player' then
-                local stateBag = Player(holder.source).state
-                for state, data in pairs(States) do
-                    if data.stateType == 'player' or data.stateType == 'all' then
-                        local bag = stateBag[state]
-                        if bag and type(bag.value) == 'number' then
-                            local newData = table.clone(bag)
-                            newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.min) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
-                            if type(data.interval) == 'number' then
-                                newData.value += data.interval
-                            end
-
-                            stateBag:set(state, newData, true)
-                        end
-                    end
-                end
-            elseif holder.type == 'entity' then
-                local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
-                if DoesEntityExist(entity) then
-                    local stateBag = Entity(entity).state
+            if holder then
+                if holder.type == 'player' then
+                    local stateBag = Player(holder.source).state
                     for state, data in pairs(States) do
-                        if data.stateType == 'entity' or data.stateType == 'all' then
+                        if data.stateType == 'player' or data.stateType == 'all' then
                             local bag = stateBag[state]
                             if bag and type(bag.value) == 'number' then
                                 local newData = table.clone(bag)
@@ -280,8 +255,27 @@ CreateThread(function()
                             end
                         end
                     end
-                else
-                    table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+                elseif holder.type == 'entity' then
+                    local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
+                    if DoesEntityExist(entity) then
+                        local stateBag = Entity(entity).state
+                        for state, data in pairs(States) do
+                            if data.stateType == 'entity' or data.stateType == 'all' then
+                                local bag = stateBag[state]
+                                if bag and type(bag.value) == 'number' then
+                                    local newData = table.clone(bag)
+                                    newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.min) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
+                                    if type(data.interval) == 'number' then
+                                        newData.value += data.interval
+                                    end
+
+                                    stateBag:set(state, newData, true)
+                                end
+                            end
+                        end
+                    else
+                        table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+                    end
                 end
             end
         end
@@ -309,25 +303,22 @@ CreateThread(function()
         Wait(saveTime)
         for i = 1, #stateHolders do
             local holder = stateHolders[i]
-            if holder.type == 'player' then
-                local stateBag = Player(holder.source).state
-                local states = {}
-                for state, data in pairs(States) do
-                    if data.stateType == 'player' or data.stateType == 'all' then
-                        states[state] = stateBag[state]
-                        for key, value in pairs(states[state]) do
-                            if type(value) == 'table' then
-                                states[state][key] = json.encode(value)
-                            end
+            if holder then
+                if holder.type == 'player' then
+                    local stateBag = Player(holder.source).state
+                    local states = {}
+                    for state, data in pairs(States) do
+                        if data.stateType == 'player' or data.stateType == 'all' then
+                            states[state] = stateBag[state]
                         end
                     end
-                end
 
-                SetResourceKvp(holder.identifier, json.encode(states))
-            elseif holder.type == 'entity' then
-                local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
-                if not DoesEntityExist(entity) then
-                    table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+                    SetResourceKvp(holder.identifier, json.encode(states))
+                elseif holder.type == 'entity' then
+                    local entity = DoesEntityExist(holder.handle) and holder.handle or NetworkGetEntityFromNetworkId(holder.identifier)
+                    if not DoesEntityExist(entity) then
+                        table.remove(stateHolders, index) -- This reorders the table indexes so it's still an array
+                    end
                 end
             end
         end
@@ -336,11 +327,6 @@ CreateThread(function()
         for state, data in pairs(States) do
             if data.stateType == 'global' or data.stateType == 'all' then
                 states[state] = GlobalState[state]
-                for key, value in pairs(states[state]) do
-                    if type(value) == 'table' then
-                        states[state][key] = json.encode(value)
-                    end
-                end
             end
         end
 
