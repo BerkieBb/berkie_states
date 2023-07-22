@@ -172,7 +172,12 @@ AddEventHandler('playerDropped', function()
     local states = {}
     for state, data in pairs(States) do
         if data.stateType == 'player' or data.stateType == 'all' then
-            states[data] = stateBag[state]
+            states[state] = stateBag[state]
+            for key, value in pairs(states[state]) do
+                if type(value) == 'table' then
+                    states[state][key] = json.encode(value)
+                end
+            end
         end
     end
 
@@ -197,7 +202,12 @@ AddEventHandler('onResourceStop', function(resource)
             local states = {}
             for state, data in pairs(States) do
                 if data.stateType == 'player' or data.stateType == 'all' then
-                    states[data] = stateBag[state]
+                    states[state] = stateBag[state]
+                    for key, value in pairs(states[state]) do
+                        if type(value) == 'table' then
+                            states[state][key] = json.encode(value)
+                        end
+                    end
                 end
             end
 
@@ -209,6 +219,11 @@ AddEventHandler('onResourceStop', function(resource)
     for state, data in pairs(States) do
         if data.stateType == 'global' or data.stateType == 'all' then
             states[state] = GlobalState[state]
+            for key, value in pairs(states[state]) do
+                if type(value) == 'table' then
+                    states[state][key] = json.encode(value)
+                end
+            end
         end
     end
 
@@ -299,7 +314,12 @@ CreateThread(function()
                 local states = {}
                 for state, data in pairs(States) do
                     if data.stateType == 'player' or data.stateType == 'all' then
-                        states[data] = stateBag[state]
+                        states[state] = stateBag[state]
+                        for key, value in pairs(states[state]) do
+                            if type(value) == 'table' then
+                                states[state][key] = json.encode(value)
+                            end
+                        end
                     end
                 end
 
@@ -316,6 +336,11 @@ CreateThread(function()
         for state, data in pairs(States) do
             if data.stateType == 'global' or data.stateType == 'all' then
                 states[state] = GlobalState[state]
+                for key, value in pairs(states[state]) do
+                    if type(value) == 'table' then
+                        states[state][key] = json.encode(value)
+                    end
+                end
             end
         end
 
