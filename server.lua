@@ -246,7 +246,7 @@ CreateThread(function()
                             local bag = stateBag[state]
                             if bag and type(bag.value) == 'number' then
                                 local newData = table.clone(bag)
-                                newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.min) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
+                                newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.max) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
                                 if type(data.interval) == 'number' then
                                     newData.value += data.interval
                                 end
@@ -264,7 +264,7 @@ CreateThread(function()
                                 local bag = stateBag[state]
                                 if bag and type(bag.value) == 'number' then
                                     local newData = table.clone(bag)
-                                    newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.min) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
+                                    newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.max) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
                                     if type(data.interval) == 'number' then
                                         newData.value += data.interval
                                     end
@@ -285,7 +285,7 @@ CreateThread(function()
                 local bag = GlobalState[state]
                 if bag and type(bag.value) == 'number' then
                     local newData = table.clone(bag)
-                    newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.min) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
+                    newData.value = (type(data.min) ~= 'number' and newData.value or newData.value < data.min and data.min) or (type(data.max) ~= 'number' and newData.value or newData.value > data.max and data.max) or newData.value
                     if type(data.interval) == 'number' then
                         newData.value += data.interval
                     end
@@ -293,6 +293,35 @@ CreateThread(function()
                     stateBag:set(state, newData, true)
                 end
             end
+        end
+
+        ---@diagnostic disable-next-line: param-type-mismatch
+        local entities = addToArray(addToArray(GetAllPeds(), GetAllVehicles()), GetAllObjects()) --[[ @as number[] ]]
+        for i = 1, #entities do
+            local entity = entities[i]
+
+            for i2 = 1, #stateHolders do
+                local holder = stateHolders[i2]
+                if holder.type == 'entity' and (holder.handle == entity or holder.identifier == NetworkGetNetworkIdFromEntity(entity)) then
+                    goto endLoop
+                end
+            end
+
+            local stateBag = Entity(entity).state
+
+            for state, data in pairs(States) do
+                if data.stateType == 'entity' then
+                    local newData = table.clone(data)
+                    newData.value = stateBag[state] and stateBag[state].value or data.startingValue
+                    stateBag:set(state, newData, true)
+                end
+            end
+            stateHolders[#stateHolders + 1] = {
+                type = 'entity',
+                identifier = NetworkGetNetworkIdFromEntity(entity),
+                handle = entity
+            }
+            :: endLoop ::
         end
     end
 end)
