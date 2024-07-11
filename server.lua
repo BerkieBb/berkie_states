@@ -4,15 +4,9 @@ local stateHolders = {}
 
 ---Get the license identifier of the player
 ---@param source number
----@return string | nil
+---@return string
 local function getPlayerIdentifier(source)
-    local identifiers = GetPlayerIdentifiers(source)
-    for i = 1, #identifiers do
-        local identifier = identifiers[i]
-        if identifier:find('license2') or identifier:find('license') then
-            return identifier
-        end
-    end
+    return GetPlayerIdentifierByType(source --[[@as string]], 'license2') or GetPlayerIdentifierByType(source --[[@as string]], 'license')
 end
 
 ---Add the contents of the second array to the first
@@ -37,7 +31,6 @@ local function init(source)
     for i = 1, #players do
         local src = tonumber(players[i]) --[[@as number]]
         local identifier = getPlayerIdentifier(src)
-        if not identifier then return end
         local kvp = GetResourceKvpString(identifier)
         local states = kvp and json.decode(kvp) or {}
         local stateBag = Player(src).state
